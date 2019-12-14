@@ -17,7 +17,7 @@ from sys import stderr
 from libarchive import file_reader
 
 ARCHS = ['x86_64']
-PKG_EXT = '.tar.xz'
+PKG_EXT = '.tar.zst'
 SIG_EXT = '.sig'
 SOURCE_EXT = '.src.tar.gz'
 DEFAULT_ARCHIVE_DIR = '/srv/archive'
@@ -68,7 +68,7 @@ def get_packages_from_buildinfo(archive, filename, archive_entry, arch):
     packages = []
     if buildinfo_format > 0:
         for package in installed:
-            pkgfilename = f'{package}.pkg.tar.xz'
+            pkgfilename = f'{package}.pkg.{PKG_EXT}'
             pkgname = '-'.join(package.split('-')[:-3])
             if not pkgname:
                 print(f'ERROR: failed to parse {package} with format {buildinfo_format} needed for {filename}', file=stderr)
@@ -81,8 +81,8 @@ def get_packages_from_buildinfo(archive, filename, archive_entry, arch):
             packages.append(pkgfilename)
         return packages
     for package in installed:
-        filename_any = f'{package}-any.pkg.tar.xz'
-        filename_arch = f'{package}-{arch}.pkg.tar.xz'
+        filename_any = f'{package}-any.pkg.{PKG_EXT}'
+        filename_arch = f'{package}-{arch}.pkg.{PKG_EXT}'
         pkgname = '-'.join(package.split('-')[:-2])
         directory = join(archive, 'packages', pkgname[0], pkgname)
         path_any = join(directory, filename_any)
