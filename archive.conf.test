@@ -5,8 +5,8 @@ ARCHIVE_RSYNC='rsync://polymorf.fr/archlinux/'
 ARCHIVE_DIR="$PWD/archive-root"
 ARCHIVE_USER=$(id -u -n)
 ARCHIVE_GROUP=$(id -g -n)
-PKGEXT='\.pkg\.tar(\.(gz|bz2|xz|zst|lrz|lzo|Z|lz4|lz))?'
-PKGSIG="$PKGEXT.sig"
+PKGREGEX='\.pkg\.tar(\.(gz|bz2|xz|zst|lrz|lzo|Z|lz4|lz))?'
+PKGSIG="$PKGREGEX.sig"
 UMASK=022
 
 # Repositories
