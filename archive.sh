@@ -157,7 +157,7 @@ repo_packages() {
 
 	# create new links pass
 	msg2 'creating new links'
-	find "$SCANDIR" -type f -name "*$PKGEXT" -o -name "*$PKGSIG"| while read src; do
+	find "$SCANDIR" -type f -regextype posix-extended -regex ".*$PKGEXT\$" -o -regex ".*$PKGSIG\$"| while read src; do
 	  filename="${src##*/}"
 	  pkgname="${filename%-*}" #remove arch and extension
 	  pkgname="${pkgname%-*}" #remove pkgrel
@@ -204,7 +204,7 @@ repo_packages_index() {
 	local TMPINDEX="$index_directory/.index.0.xz"
 
 	rm -f "$TMPINDEX"
-	find "$source_directory" -name "*$PKGEXT" -printf '%f\n'|sed 's/.\{'${#PKGEXT}'\}$//'|sort -u|pacsort|xz -9 > "$TMPINDEX"
+	find "$source_directory" -regextype posix-extended -regex ".*$PKGEXT\$" -printf '%f\n'|sed -E "s/$PKGEXT\$//"|sort -u|pacsort|xz -9 > "$TMPINDEX"
 	if [[ ! -e "$INDEX" ]]; then
 	  mv "$TMPINDEX" "$INDEX"
 	elif diff -q "$INDEX" "$TMPINDEX"; then
