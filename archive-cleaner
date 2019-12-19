@@ -17,9 +17,8 @@ from sys import stderr
 from libarchive import file_reader
 
 ARCHS = ['x86_64']
-PKG_EXT = '.tar.xz'
+PKG_EXTENSIONS = ['.tar.xz', '.tar.gz', '.tar.bz2', '.tar.zst', '.tar.lrz', '.tar.lzo', '.tar.Z', '.tar.lz4', '.tar.lz']
 SIG_EXT = '.sig'
-SOURCE_EXT = '.src.tar.gz'
 DEFAULT_ARCHIVE_DIR = '/srv/archive'
 DEFAULT_SOURCE_DIR = '/srv/ftp'
 SOURCE_WHITELIST = ['core', 'extra', 'staging', 'testing', 'community', 'community-staging', 'community-testing', 'multilib', 'multilib-staging', 'multilib-testing', 'gnome-unstable', 'kde-unstable']
@@ -32,10 +31,11 @@ def get_sourceball(path):
     date = m.group(0)
 
     pkgname = basename(path)
+    source_ext = '.src.{}'.format('.'.join(pkgname.split('.')[1:]))
     pkgver, pkgrel, _ = pkgname.split('-')[-3:]
     pkgname, _ = pkgname.split(f'-{pkgver}-{pkgrel}')
 
-    return f'/srv/archive/repos/{date}/sources/packages/{pkgname}-{pkgver}-{pkgrel}{SOURCE_EXT}'
+    return f'/srv/archive/repos/{date}/sources/packages/{pkgname}-{pkgver}-{pkgrel}{source_ext}'
 
 
 def human_filesize(size):
@@ -58,7 +58,6 @@ def read_file(archive, filename, arch):
     packages.append(basename(filename))
     return packages
 
-
 def get_packages_from_buildinfo(archive, filename, archive_entry, arch):
     buildinfo = b''.join(archive_entry.get_blocks()).decode()
     m = search('format = (\\d)', buildinfo)
@@ -68,32 +67,48 @@ def get_packages_from_buildinfo(archive, filename, archive_entry, arch):
     packages = []
     if buildinfo_format > 0:
         for package in installed:
-            pkgfilename = f'{package}.pkg.tar.xz'
+            pkgfilenames = [f'{package}.pkg{ext}' for ext in PKG_EXTENSIONS]
             pkgname = '-'.join(package.split('-')[:-3])
             if not pkgname:
                 print(f'ERROR: failed to parse {package} with format {buildinfo_format} needed for {filename}', file=stderr)
                 continue
-            directory = join(archive, 'packages', pkgname[0], pkgname)
-            path = join(directory, pkgfilename)
-            if not isfile(path):
-                print(f'ERROR: {package} needed for {filename} not in archive {path}', file=stderr)
+            directory = join(archive, 'packages'. pkgname[0], pkgname)
+            paths = [(pkgfilename, join(directory, pkgfilename)) for pkgfilename in pkgfilenames]
+            existing_paths = list(filter(lambda path_tuple: isfile(path_tuple[1]), paths))
+            if len(existing_paths) == 0:
+                for _, path in paths:
+                    print(f'ERROR: {package} needed for {filename} not in archive {path}', file=stderr)
                 continue
-            packages.append(pkgfilename)
+            packages.extend(list(map(lambda path_tuple: path_tuple[0], existing_paths)))
         return packages
     for package in installed:
-        filename_any = f'{package}-any.pkg.tar.xz'
-        filename_arch = f'{package}-{arch}.pkg.tar.xz'
+        filenames_any = [f'{package}-any.pkg{ext}' for ext in PKG_EXTENSIONS]
+        filenames_arch = [f'{package}-{arch}.pkg{ext}' for ext in PKG_EXTENSIONS]
         pkgname = '-'.join(package.split('-')[:-2])
         directory = join(archive, 'packages', pkgname[0], pkgname)
-        path_any = join(directory, filename_any)
-        path_arch = join(directory, filename_arch)
-        if isfile(path_any):
-            packages.append(filename_any)
-        elif isfile(path_arch):
-            packages.append(filename_arch)
-        else:
-            print(f'ERROR: {package} needed for {filename} not in archive {path_any}', file=stderr)
-            print(f'ERROR: {package} needed for {filename} not in archive {path_arch}', file=stderr)
+        paths_any= [(filename_any, join(directory, filename_any)) for filename_any in filenames_any]
+        paths_arch = [(filename_arch, join(directory, filename_arch)) for filename_arch in filenames_arch]
+
+        found_package = None
+        for path_any_tuple, path_arch_tuple in zip(paths_any, paths_arch):
+            filename_any, path_any = path_any_tuple
+            filename_arch, path_arch = path_arch_tuple
+            if isfile(path_any):
+                found_package = filename_any
+                break
+            elif isfile(path_arch):
+                found_package = filename_arch
+                break
+
+        if found_package is None:
+            for path_any_tuple, path_arch_tuple in zip(paths_any, paths_arch):
+                filename_any, path_any = path_any_tuple
+                filename_arch, path_arch = path_arch_tuple
+                print(f'ERROR: {package} needed for {filename} not in archive {path_any}', file=stderr)
+                print(f'ERROR: {package} needed for {filename} not in archive {path_arch}', file=stderr)
+                continue
+        packages.append(found_package)
+
     return packages
 
 
@@ -103,8 +118,9 @@ def main(repo=DEFAULT_SOURCE_DIR, archive=DEFAULT_ARCHIVE_DIR, keep_years=DEFAUL
     for subdir in SOURCE_WHITELIST:
         for arch in ARCHS:
             directory = join(repo, subdir, 'os', arch)
-            for filename in glob(join(directory, f'*{PKG_EXT}')):
-                tasks.append((archive, filename, arch))
+            for ext in PKG_EXTENSIONS:
+                for filename in glob(join(directory, f'*{ext}')):
+                    tasks.append((archive, filename, arch))
 
     with Pool(processes=processes) as pool:
         results = pool.starmap(read_file, tasks)
@@ -120,8 +136,8 @@ def main(repo=DEFAULT_SOURCE_DIR, archive=DEFAULT_ARCHIVE_DIR, keep_years=DEFAUL
     years = list(filter(lambda year: year <= keep_until,
                         map(lambda path: int(basename(path)), glob(join(archive, 'repos', '2*')))))
     purge_paths = [path for paths in [glob(join(archive, 'repos', f'{year}', '*', '*')) for year in years] for path in paths]
-    purge_paths = [join(path, '*', 'os', '*', f'*{PKG_EXT}') for path in purge_paths] + \
-                  [join(path, 'pool', '*', f'*{PKG_EXT}') for path in purge_paths]
+    purge_paths = [join(path, '*', 'os', '*', f'*{ext}') for ext in PKG_EXTENSIONS for path in purge_paths] + \
+                  [join(path, 'pool', '*', f'*{ext}') for ext in PKG_EXTENSIONS for path in purge_paths]
 
     with Pool(processes=processes) as pool:
         results = pool.map(glob, purge_paths)
