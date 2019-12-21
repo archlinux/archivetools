@@ -31,7 +31,10 @@ def get_sourceball(path):
     date = m.group(0)
 
     pkgname = basename(path)
-    source_ext = '.src.{}'.format('.'.join(pkgname.split('.')[1:]))
+    pkg_exts = list(filter(lambda ext: ext in pkgname, PKG_EXTENSIONS))
+    if not pkg_exts:
+        raise ValueError(f'Expecting path to end with one of these extensions {" ".join(PKG_EXTENSIONS)}. {path} given')
+    source_ext = f'.src{pkg_exts[0]}'
     pkgver, pkgrel, _ = pkgname.split('-')[-3:]
     pkgname, _ = pkgname.split(f'-{pkgver}-{pkgrel}')
 
@@ -72,42 +75,33 @@ def get_packages_from_buildinfo(archive, filename, archive_entry, arch):
             if not pkgname:
                 print(f'ERROR: failed to parse {package} with format {buildinfo_format} needed for {filename}', file=stderr)
                 continue
-            directory = join(archive, 'packages'. pkgname[0], pkgname)
-            paths = [(pkgfilename, join(directory, pkgfilename)) for pkgfilename in pkgfilenames]
-            existing_paths = list(filter(lambda path_tuple: isfile(path_tuple[1]), paths))
-            if len(existing_paths) == 0:
-                for _, path in paths:
-                    print(f'ERROR: {package} needed for {filename} not in archive {path}', file=stderr)
+            directory = join(archive, 'packages', pkgname[0], pkgname)
+            paths = [join(directory, pkgfilename) for pkgfilename in pkgfilenames]
+            existing_paths = list(filter(lambda path: isfile(path), paths))
+            if not existing_paths:
+                print(f'ERROR: {package} needed for {filename} not in archive {" ".join(paths)}', file=stderr)
                 continue
-            packages.extend(list(map(lambda path_tuple: path_tuple[0], existing_paths)))
+            # as it shouldn't be possible to have more than one extension take the first and append it
+            packages.append(basename(existing_paths[0]))
         return packages
     for package in installed:
         filenames_any = [f'{package}-any.pkg{ext}' for ext in PKG_EXTENSIONS]
         filenames_arch = [f'{package}-{arch}.pkg{ext}' for ext in PKG_EXTENSIONS]
         pkgname = '-'.join(package.split('-')[:-2])
         directory = join(archive, 'packages', pkgname[0], pkgname)
-        paths_any= [(filename_any, join(directory, filename_any)) for filename_any in filenames_any]
-        paths_arch = [(filename_arch, join(directory, filename_arch)) for filename_arch in filenames_arch]
+        paths_any= [join(directory, filename_any) for filename_any in filenames_any]
+        paths_arch = [join(directory, filename_arch) for filename_arch in filenames_arch]
 
-        found_package = None
-        for path_any_tuple, path_arch_tuple in zip(paths_any, paths_arch):
-            filename_any, path_any = path_any_tuple
-            filename_arch, path_arch = path_arch_tuple
-            if isfile(path_any):
-                found_package = filename_any
-                break
-            elif isfile(path_arch):
-                found_package = filename_arch
-                break
+        existing_paths_any = list(filter(lambda path: isfile(path), paths_any))
+        existing_paths_arch = list(filter(lambda path: isfile(path), paths_arch))
 
-        if found_package is None:
-            for path_any_tuple, path_arch_tuple in zip(paths_any, paths_arch):
-                filename_any, path_any = path_any_tuple
-                filename_arch, path_arch = path_arch_tuple
-                print(f'ERROR: {package} needed for {filename} not in archive {path_any}', file=stderr)
-                print(f'ERROR: {package} needed for {filename} not in archive {path_arch}', file=stderr)
-                continue
-        packages.append(found_package)
+        if existing_paths_any:
+            # as it shouldn't be possible to have more than one extension take the first and append it
+            packages.append(basename(existing_paths_any[0]))
+        elif existing_paths_arch:
+            packages.append(basename(existing_paths_arch[0]))
+        else:
+            print(f'ERROR: {package} needed for {filename} not in archive {" ".join(paths_any + paths_arch)}', file=stderr)
 
     return packages
 
@@ -118,8 +112,7 @@ def main(repo=DEFAULT_SOURCE_DIR, archive=DEFAULT_ARCHIVE_DIR, keep_years=DEFAUL
     for subdir in SOURCE_WHITELIST:
         for arch in ARCHS:
             directory = join(repo, subdir, 'os', arch)
-            for ext in PKG_EXTENSIONS:
-                for filename in glob(join(directory, f'*{ext}')):
+            for filename in filter(lambda filename: SIG_EXT not in filename, glob(join(directory, f'*.pkg.*'))):
                     tasks.append((archive, filename, arch))
 
     with Pool(processes=processes) as pool:
@@ -136,13 +129,13 @@ def main(repo=DEFAULT_SOURCE_DIR, archive=DEFAULT_ARCHIVE_DIR, keep_years=DEFAUL
     years = list(filter(lambda year: year <= keep_until,
                         map(lambda path: int(basename(path)), glob(join(archive, 'repos', '2*')))))
     purge_paths = [path for paths in [glob(join(archive, 'repos', f'{year}', '*', '*')) for year in years] for path in paths]
-    purge_paths = [join(path, '*', 'os', '*', f'*{ext}') for ext in PKG_EXTENSIONS for path in purge_paths] + \
-                  [join(path, 'pool', '*', f'*{ext}') for ext in PKG_EXTENSIONS for path in purge_paths]
+    purge_paths = [join(path, '*', 'os', '*', '*.pkg.*') for path in purge_paths] + \
+                  [join(path, 'pool', '*', '*.pkg.*') for path in purge_paths]
 
     with Pool(processes=processes) as pool:
         results = pool.map(glob, purge_paths)
 
-    all_files = [path for paths in results for path in paths]
+    all_files = [path for paths in results for path in paths if SIG_EXT not in path]
     purge = list(filter(lambda path: basename(path) not in needed, all_files))
     keep = list(filter(lambda path: basename(path) in needed, all_files))
 
