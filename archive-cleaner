@@ -31,7 +31,7 @@ def get_sourceball(path):
     date = m.group(0)
 
     pkgname = basename(path)
-    pkg_exts = list(filter(lambda ext: ext in pkgname, PKG_EXTENSIONS))
+    pkg_exts = list(filter(lambda ext: pkgname.endswith(ext), PKG_EXTENSIONS))
     if not pkg_exts:
         raise ValueError(f'Expecting path to end with one of these extensions {" ".join(PKG_EXTENSIONS)}. {path} given')
     source_ext = f'.src{pkg_exts[0]}'
@@ -89,7 +89,7 @@ def get_packages_from_buildinfo(archive, filename, archive_entry, arch):
         filenames_arch = [f'{package}-{arch}.pkg{ext}' for ext in PKG_EXTENSIONS]
         pkgname = '-'.join(package.split('-')[:-2])
         directory = join(archive, 'packages', pkgname[0], pkgname)
-        paths_any= [join(directory, filename_any) for filename_any in filenames_any]
+        paths_any = [join(directory, filename_any) for filename_any in filenames_any]
         paths_arch = [join(directory, filename_arch) for filename_arch in filenames_arch]
 
         existing_paths_any = list(filter(lambda path: isfile(path), paths_any))
@@ -112,8 +112,8 @@ def main(repo=DEFAULT_SOURCE_DIR, archive=DEFAULT_ARCHIVE_DIR, keep_years=DEFAUL
     for subdir in SOURCE_WHITELIST:
         for arch in ARCHS:
             directory = join(repo, subdir, 'os', arch)
-            for filename in filter(lambda filename: SIG_EXT not in filename, glob(join(directory, f'*.pkg.*'))):
-                    tasks.append((archive, filename, arch))
+            for filename in filter(lambda filename: not filename.endswith(SIG_EXT), glob(join(directory, f'*.pkg.*'))):
+                tasks.append((archive, filename, arch))
 
     with Pool(processes=processes) as pool:
         results = pool.starmap(read_file, tasks)
@@ -129,13 +129,13 @@ def main(repo=DEFAULT_SOURCE_DIR, archive=DEFAULT_ARCHIVE_DIR, keep_years=DEFAUL
     years = list(filter(lambda year: year <= keep_until,
                         map(lambda path: int(basename(path)), glob(join(archive, 'repos', '2*')))))
     purge_paths = [path for paths in [glob(join(archive, 'repos', f'{year}', '*', '*')) for year in years] for path in paths]
-    purge_paths = [join(path, '*', 'os', '*', '*.pkg.*') for path in purge_paths] + \
-                  [join(path, 'pool', '*', '*.pkg.*') for path in purge_paths]
+    purge_paths = [join(path, '*', 'os', '*', '*.pkg.tar.*') for path in purge_paths] + \
+                  [join(path, 'pool', '*', '*.pkg.tar.*') for path in purge_paths]
 
     with Pool(processes=processes) as pool:
         results = pool.map(glob, purge_paths)
 
-    all_files = [path for paths in results for path in paths if SIG_EXT not in path]
+    all_files = [path for paths in results for path in paths if not path.endswith(SIG_EXT)]
     purge = list(filter(lambda path: basename(path) not in needed, all_files))
     keep = list(filter(lambda path: basename(path) in needed, all_files))
 
