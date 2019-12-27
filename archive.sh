@@ -54,7 +54,7 @@ load_config() {
 	msg "Loading configuration: $conf"
 	. "$conf" || fail 'Failed to load archive config.'
 	enforce_config_vars ARCHIVE_RSYNC ARCHIVE_DIR ARCHIVE_USER \
-		ARCHIVE_GROUP PKGREGEX PKGSIG UMASK ARCHIVE_REPO ARCHIVE_ISO
+		ARCHIVE_GROUP PKGREGEX PKGSIGREGEX UMASK ARCHIVE_REPO ARCHIVE_ISO
 	if [[ $ARCHIVE_REPO == "1" ]]; then
 		enforce_config_vars REPO_DAYLY REPO_PACKAGES REPO_PACKAGES_INDEX \
 			REPO_PACKAGES_FULL_SEARCH REPO_RSYNC_TIMEOUT
@@ -157,7 +157,7 @@ repo_packages() {
 
 	# create new links pass
 	msg2 'creating new links'
-	find "$SCANDIR" -type f -regextype posix-extended -regex ".*$PKGREGEX\$" -o -regex ".*$PKGSIG\$"| while read src; do
+	find "$SCANDIR" -type f -regextype posix-extended -regex ".*$PKGREGEX\$" -o -regex ".*$PKGSIGREGEX\$"| while read src; do
 	  filename="${src##*/}"
 	  pkgname="${filename%-*}" #remove arch and extension
 	  pkgname="${pkgname%-*}" #remove pkgrel
